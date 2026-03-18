@@ -16,6 +16,8 @@ from .utils import float_to_hex, is_odd, base64_encode
 
 ON_DEMAND_FILE_REGEX = re.compile(
     r"""['|\"]{1}ondemand\.s['|\"]{1}:\s*['|\"]{1}([\w]*)['|\"]{1}""", flags=(re.VERBOSE | re.MULTILINE))
+ON_DEMAND_CHUNK_ID_REGEX = re.compile(
+    r"""(\d+):"ondemand\.s\"""", flags=(re.VERBOSE | re.MULTILINE))
 INDICES_REGEX = re.compile(
     r"""(\(\w{1}\[(\d{1,2})\],\s*16\))+""", flags=(re.VERBOSE | re.MULTILINE))
 
@@ -100,25 +102,48 @@ class TransactionGenerator:
     DEFAULT_ROW_INDEX = None
     DEFAULT_KEY_BYTES_INDICES = None
 
-    def __init__(self, home_page_html: Union[bs4.BeautifulSoup, httpx.Response]):
+    def __init__(self, home_page_html: Union[bs4.BeautifulSoup, httpx.Response], on_demand_file_text: str = None):
 
         self.home_page_html = self.validate_response(home_page_html)
-        self.DEFAULT_ROW_INDEX, self.DEFAULT_KEY_BYTES_INDICES = self.get_indices(self.home_page_html)
+        self.DEFAULT_ROW_INDEX, self.DEFAULT_KEY_BYTES_INDICES = self.get_indices(self.home_page_html, on_demand_file_text)
         self.key = self.get_key(response=self.home_page_html)
         self.key_bytes = self.get_key_bytes(key=self.key)
         self.animation_key = self.get_animation_key(key_bytes=self.key_bytes, response=self.home_page_html)
 
-    def get_indices(self, home_page_html=None):
+    @staticmethod
+    def get_on_demand_url(home_page_html_text: str):
+        """Resolve the ondemand.s JS file URL from the home page HTML text."""
+        on_demand_file = ON_DEMAND_FILE_REGEX.search(home_page_html_text)
+        if on_demand_file:
+            on_demand_file_hash = on_demand_file.group(1)
+        else:
+            chunk_id_match = ON_DEMAND_CHUNK_ID_REGEX.search(home_page_html_text)
+            if chunk_id_match:
+                chunk_id = chunk_id_match.group(1)
+                hash_matches = re.findall(rf'{chunk_id}:"([a-f0-9]+)"', home_page_html_text)
+                if hash_matches:
+                    on_demand_file_hash = hash_matches[0]
+                else:
+                    return None
+            else:
+                return None
+        return f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{on_demand_file_hash}a.js"
+
+    def get_indices(self, home_page_html=None, on_demand_file_text: str = None):
         key_byte_indices = []
         response = self.validate_response(home_page_html) or self.home_page_html
-        on_demand_file = ON_DEMAND_FILE_REGEX.search(str(response))
-        if on_demand_file:
-            on_demand_file_url = f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{on_demand_file.group(1)}a.js"
-            on_demand_file_response = httpx.get(on_demand_file_url)
-            key_byte_indices_match = INDICES_REGEX.finditer(
-                str(on_demand_file_response.text))
+
+        if not on_demand_file_text:
+            # Fallback: fetch synchronously (for backward compatibility)
+            on_demand_url = self.get_on_demand_url(str(response))
+            if on_demand_url:
+                on_demand_file_text = httpx.get(on_demand_url).text
+
+        if on_demand_file_text:
+            key_byte_indices_match = INDICES_REGEX.finditer(on_demand_file_text)
             for item in key_byte_indices_match:
                 key_byte_indices.append(item.group(2))
+
         if not key_byte_indices:
             raise Exception("Couldn't get animation key indices")
         key_byte_indices = list(map(int, key_byte_indices))

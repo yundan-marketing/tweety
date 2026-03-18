@@ -173,7 +173,14 @@ class Request:
         cookies = await self.remove_cookies()
         if not self._transaction:
             home_page_html = await self.get_home_html()
-            self._transaction = TransactionGenerator(home_page_html)
+            # Fetch ondemand.s JS file via the async session (uses proxy/HTTP2 settings)
+            on_demand_file_text = None
+            html_soup = bs4.BeautifulSoup(home_page_html.content, 'lxml') if isinstance(home_page_html, httpx.Response) else home_page_html
+            on_demand_url = TransactionGenerator.get_on_demand_url(str(html_soup))
+            if on_demand_url:
+                on_demand_response = await self._session.get(on_demand_url)
+                on_demand_file_text = on_demand_response.text
+            self._transaction = TransactionGenerator(home_page_html, on_demand_file_text=on_demand_file_text)
 
         if not self._guest_token:
             self._guest_token = await self._get_guest_token()
