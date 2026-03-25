@@ -52,7 +52,12 @@ class GenericError:
         144: InvalidTweetIdentifier,
         214: InvalidBroadcast,
         220: InvalidCredentials,
+        225: AutomationDetected,  # TieredActionFollowSpammer
+        226: AutomationDetected,  # TieredActionTweetSpammer — automation/spam detection
+        227: AutomationDetected,  # TieredActionFollowCreeper
+        228: AutomationDetected,  # TieredActionTweetCreeper
         326: LockedAccount,
+        344: RateLimitReached,    # UserActionRateLimitExceeded — daily action limit
         366: InvalidTweetIdentifier,
         399: InvalidCredentials,
         477: RateLimitReached
