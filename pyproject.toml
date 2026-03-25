@@ -7,3 +7,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.poetry.extras]
 windows = ["python-magic-bin"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

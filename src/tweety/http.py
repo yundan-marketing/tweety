@@ -11,7 +11,7 @@ from typing import Callable
 from urllib.parse import quote, urlparse
 import bs4
 import httpx
-from .exceptions import GuestTokenNotFound, TwitterError, UserNotFound, InvalidCredentials
+from .exceptions import GuestTokenNotFound, TwitterError, UserNotFound, InvalidCredentials, RateLimitReached
 from .types import User
 from .types.n_types import GenericError
 from .utils import custom_json, GUEST_TOKEN_REGEX, get_random_string, MIGRATION_REGEX, Warn
@@ -187,7 +187,7 @@ class Request:
 
         self.cookies = cookies
 
-    async def __get_response__(self, return_raw=False, ignore_none_data=False, is_document=False, **request_data):
+    async def __get_response__(self, return_raw=False, ignore_none_data=False, is_document=False, _rate_limit_retried=False, **request_data):
         if not self._transaction or not self._guest_token:
             await self._init_local_api()
 
@@ -226,6 +226,19 @@ class Request:
             return None
 
         if (not response_json and response.text and response.text.lower() == "rate limit exceeded") or response.status_code == 429:
+            # Auto-wait on rate limit: use x-rate-limit-reset header for precise wait time
+            if not _rate_limit_retried:
+                retry_after = 0
+                if all(key in response.headers for key in ['x-rate-limit-reset']):
+                    retry_after = int(response.headers['x-rate-limit-reset']) - int(time.time())
+
+                if 0 < retry_after <= 900:  # Wait up to 15 minutes max
+                    await asyncio.sleep(retry_after + 1)  # +1 second buffer
+                    return await self.__get_response__(
+                        return_raw=return_raw, ignore_none_data=ignore_none_data,
+                        is_document=is_document, _rate_limit_retried=True, **request_data
+                    )
+
             response_json = {"errors": [{"code": 88, "message": "Rate limit exceeded."}]}
         elif not response_json and response.status_code in [403, 401]:
             response_json = {"errors": [{"code": 32, "message": "Couldn't authenticate you"}]}
@@ -243,9 +256,9 @@ class Request:
 
             error_code = error.get("code", 0)
             error_message = error.get("message")
-            
-            # Twitter Captcha solving is a bit unstable , removing it till fixed 
-            
+
+            # Twitter Captcha solving is a bit unstable , removing it till fixed
+
             # if int(error_code) in [326] and self._captcha_solver:
             #    self.solve_captcha()
             #    return self.__get_response__(return_raw, ignore_none_data, is_document, **request_data)

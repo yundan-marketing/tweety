@@ -81,7 +81,7 @@ class InvalidTweetIdentifier(TwitterError):
 
 class RateLimitReached(TwitterError):
     """
-        Exception Raised when the tweet identifier is invalid
+        Exception Raised when the rate limit has been exceeded
 
         Attributes:
             message -- explanation of the error
@@ -90,6 +90,21 @@ class RateLimitReached(TwitterError):
     def __init__(self, error_code, error_name, response, message="You have exceeded the Twitter Rate Limit", **kw):
         super().__init__(error_code, error_name, response, message)
         self.retry_after = kw.get('retry_after')  # Number of seconds required for rate limit to be reset
+
+
+class AutomationDetected(TwitterError):
+    """
+        Exception Raised when Twitter detects automated behavior (error code 226).
+        This typically requires a cooldown period before retrying.
+
+        Attributes:
+            message -- explanation of the error
+    """
+
+    def __init__(self, error_code=226, error_name="TieredActionTweetSpammer", response=None,
+                 message="Twitter has detected automated behavior on this account", **kw):
+        super().__init__(error_code, error_name, response, message)
+        self.retry_after = kw.get('retry_after', 300)  # Default 5 minutes cooldown
 
 
 class ProxyParseError(TwitterError):

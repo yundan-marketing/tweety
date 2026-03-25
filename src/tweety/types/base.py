@@ -1,6 +1,7 @@
 import asyncio
 from tweety.types import ShortUser
 from .twDataTypes import User, Tweet
+from ..exceptions import RateLimitReached
 from ..utils import find_objects, parse_wait_time
 
 
@@ -57,9 +58,12 @@ class BaseGeneratorClass(dict):
 
     async def generator(self):
         this_page = 0
+        _rate_limit_retries = 0
+        _max_rate_limit_retries = 3
         while this_page != int(self.pages):
             try:
                 results = await self.get_next_page()
+                _rate_limit_retries = 0  # Reset on success
 
                 if len(results) == 0:
                     break
@@ -74,6 +78,17 @@ class BaseGeneratorClass(dict):
                 if this_page != self.pages:
                     this_wait_time = parse_wait_time(self.wait_time)
                     await asyncio.sleep(this_wait_time)
+            except RateLimitReached as e:
+                _rate_limit_retries += 1
+                if _rate_limit_retries > _max_rate_limit_retries:
+                    raise
+
+                retry_after = getattr(e, 'retry_after', None)
+                if retry_after and 0 < retry_after <= 900:  # Wait up to 15 minutes
+                    await asyncio.sleep(retry_after + 1)
+                else:
+                    await asyncio.sleep(60 * _rate_limit_retries)  # Fallback: 60s, 120s, 180s
+                # Don't increment this_page — retry the same page
             except asyncio.CancelledError:
                 break
 
