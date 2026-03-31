@@ -639,7 +639,38 @@ class UserMethods:
         response = await self.http.create_tweet(
             text, files, filter_, reply_to, quote, pool, place, batch_compose, community_id, post_on_timeline
         )
-        response['data']['create_tweet']['tweet_results']['result']['__typename'] = "Tweet"
+
+        response_data = response.get('data', {}) if isinstance(response, dict) else {}
+
+        # Check for GraphQL errors returned alongside data
+        response_errors = response.get('errors', []) if isinstance(response, dict) else []
+        if response_errors:
+            error = response_errors[0]
+            raise ValueError(
+                f"Tweet creation failed: [{error.get('code', 'unknown')}] "
+                f"{error.get('message', 'Unknown error')} "
+                f"(extensions: {error.get('extensions', {})})"
+            )
+
+        # CreateTweet returns 'create_tweet', CreateNoteTweet returns 'notetweet_create'
+        tweet_result = response_data.get('create_tweet') or response_data.get('notetweet_create')
+
+        if not tweet_result:
+            raise ValueError(
+                f"Tweet creation failed: unexpected response structure. "
+                f"Available keys: {list(response_data.keys())}, "
+                f"full response: {response}"
+            )
+
+        tweet_inner = tweet_result.get('tweet_results', {}).get('result')
+        if not tweet_inner:
+            raise ValueError(
+                f"Tweet creation failed: empty tweet_results in response. "
+                f"tweet_result keys: {list(tweet_result.keys())}, "
+                f"full response: {response}"
+            )
+
+        tweet_inner['__typename'] = "Tweet"
         return Tweet(self, response, response)
 
     async def schedule_tweet(
